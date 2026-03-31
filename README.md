@@ -5,7 +5,7 @@ The project group consists of Mikołaj Lipiński and Bartłomiej Hryniewski.
 
 ## Description
 
-The goal of this project is to create a control algorithm for a swarm of drones for the purpose of livestock herding. The project is based on the paper [Robotic Herding of Farm Animals Using a Network of Barking Aerial Drones](https://www.mdpi.com/2504-446X/6/2/29).
+The goal of this project is to create a control algorithm for a swarm of drones for the purpose of livestock herding. The project is based on the paper [Robotic Herding of Farm Animals Using a Network of Barking Aerial Drones](https://www.mdpi.com/2504-446X/6/2/29). Our contribution to the project will include application of appropriate reinforced learning algorithm, either for modelling or estimating animal herd model, or generating drones trajectory.
 
 ## Goals
 

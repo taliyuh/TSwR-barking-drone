@@ -38,12 +38,13 @@ class Drone:
         :param dt: time step for the update
         :param u: control input (acceleration) to be applied, should be a scalar
         :param v: velocity to be applied, should be a scalar
+        :return: None
 
         this function updates the state of the drone based on the control input and velocity
         """
 
         # clip speed v to [0, v_max]:
-        self.v = np.clip(v, 0, self.v_max)
+        self.v = np.clip(v, -self.v_max, self.v_max)
 
         # clip control input u to [-u_max, u_max]:
         u_norm = np.linalg.norm(u)

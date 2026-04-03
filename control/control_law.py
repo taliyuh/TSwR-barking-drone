@@ -7,6 +7,7 @@ def ortho(v1, v2):
     
     :param v1: first vector, should be a list or array of length 2
     :param v2: second vector, should be a list or array of length 2
+    :return: orthogonalised vector
 
     this function orthogonalises v2 with respect to v1 and returns the result
     math:
@@ -21,6 +22,10 @@ def ortho(v1, v2):
 
 def normalise_ortho(v1, v2):
     """
+    docstring for normalise_ortho
+
+    :return: normalised orthogonalised vector
+
     this function orthogonalises v2 with respect to v1 and normalises the result
     math:
     f(v1, v2) = (v2 - (v1 . v2) * v1) / ||v2 - (v1 . v2) * v1||
@@ -34,7 +39,10 @@ def normalise_ortho(v1, v2):
     
 def check_direction(v1, v2):
     """
-    this function checks if the two vectors point in the same direction
+    docstring for check_direction
+
+    :return: 1 if v1 and v2 point in the same direction, -1 otherwise
+
     math:
     return 1 if (v1 . v2) > 0 and -1 if (v1 . v2) <= 0
     """
@@ -54,10 +62,14 @@ def closest_point_vector(drone_position, vertex1, vertex):
     :param drone_position: xy position of the drone, should be a list or array of length 2
     :param vertex1: first vertex of the edge, should be a list or array of length 2
     :param vertex: second vertex of the edge, should be a list or array of length 2
-    
+    :return: vector from the drone position to the closest point on the edge defined by vertex1 and vertex
+
     find the shortest vector from the drone position to the edge defined by vertex1 and vertex
     
     """
+    drone_position = np.array(drone_position, dtype=float)
+    vertex1 = np.array(vertex1, dtype=float)
+    vertex = np.array(vertex, dtype=float)
 
     q_vector = vertex - vertex1
     p_vector = drone_position - vertex1
@@ -81,7 +93,9 @@ def fly_to_edge(drone, vertex1, vertex):
     :param drone: instance of the Drone class
     :param vertex1: first vertex of the edge, should be a list or array of length 2
     :param vertex: second vertex of the edge, should be a list or array of length 2
-    
+    :return drone.u: control input (acceleration)  
+    :return drone.v: velocity
+
     drone should fly towards the edge defined by vertex1 and vertex, using the control law defined in the article
     """
 
@@ -93,8 +107,18 @@ def fly_to_edge(drone, vertex1, vertex):
         drone.v = 0
         return drone.u, drone.v
     
-    drone.u = drone.u_max * check_direction(drone.a, b) * normalise_ortho(drone.a, b)
-    drone.v = drone.v_max * check_direction(drone.a, b)
+    b_normalised = b / np.linalg.norm(b)
+    ortho_component = ortho(drone.a, b_normalised)
+    steering_magnitude = np.linalg.norm(ortho_component)
+
+    if steering_magnitude > 1e-9:
+        steer_direction = ortho_component / steering_magnitude
+        drone.u = drone.u_max * steering_magnitude * check_direction(drone.a, b) * steer_direction
+    else:
+        drone.u = np.zeros(2)
+
+    alignment = np.dot(drone.a, b_normalised)
+    drone.v = drone.v_max * alignment
 
     return drone.u, drone.v
 
@@ -103,6 +127,8 @@ def fly_on_edge(drone, vertex1, vertex, target_point):
     Docstring for fly_on_edge
 
     :param target_point: point on the edge that the drone should fly towards, should be a list or array of length 2
+    :return drone.u: control input (acceleration) 
+    :return drone.v: velocity
 
     drone should fly along the edge defined by vertex1 and vertex towards the target_point, using the control law defined in the article
     """
@@ -120,7 +146,17 @@ def fly_on_edge(drone, vertex1, vertex, target_point):
         drone.v = 0
         return drone.u, drone.v
     
-    drone.u = drone.u_max * check_direction(drone.a, b_star) * normalise_ortho(drone.a, b_star)
-    drone.v = drone.v_max * check_direction(drone.a, b_star)
+    b_star_normalised = b_star / np.linalg.norm(b_star)
+    ortho_component = ortho(drone.a, b_star_normalised)
+    steering_magnitude = np.linalg.norm(ortho_component)
+
+    if steering_magnitude > 1e-9:
+        steer_direction = ortho_component / steering_magnitude
+        drone.u = drone.u_max * steering_magnitude * check_direction(drone.a, b_star) * steer_direction
+    else:
+        drone.u = np.zeros(2)
+
+    alignment = np.dot(drone.a, b_star_normalised)
+    drone.v = drone.v_max * alignment
 
     return drone.u, drone.v

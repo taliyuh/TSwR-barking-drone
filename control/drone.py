@@ -3,7 +3,7 @@ import numpy as np
 class Drone:
     def __init__(self, initial_position, initial_heading, v_max, u_max):
         """
-        docstring for __init__
+        Docstring for __init__
         
         :param self: 
         :param initial_position: starting position of the drone, should be a list or array of length 2
@@ -27,11 +27,12 @@ class Drone:
         
         self.v = 0.0
         self.v_max = v_max
+        self.u = np.zeros(2)
         self.u_max = u_max
 
     def update_state(self, dt, u, v):
         """
-        docstring for update_state
+        Docstring for update_state
         
         :param self: 
         :param dt: time step for the update
@@ -45,7 +46,9 @@ class Drone:
         self.v = np.clip(v, 0, self.v_max)
 
         # clip control input u to [-u_max, u_max]:
-        u = np.clip(u, -self.u_max, self.u_max)
+        u_norm = np.linalg.norm(u)
+        if u_norm > self.u_max:
+            u = (u / u_norm) * self.u_max
 
         # orthogonalise the control input to the heading direction
         u = u - np.dot(u, self.a) * self.a
@@ -62,7 +65,7 @@ class Drone:
         self.d = self.d + d_dot * dt
 
         # normalise the heading vector after the update
-        try:
-            self.a = self.a / np.linalg.norm(self.a)
-        except ZeroDivisionError:
-            raise ValueError("heading vector cannot be zero after update")
+        heading_norm = np.linalg.norm(self.a)
+        if heading_norm == 0:
+            raise ValueError("Heading vector cannot be zero")
+        self.a = self.a / heading_norm

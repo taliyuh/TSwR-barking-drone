@@ -5,6 +5,14 @@ from control_law import fly_on_edge, closest_point_vector
 
 class SwarmManager:
     def __init__(self, number_of_drones, initial_positions, v_max, u_max):
+        """
+        Initialises the swarm manager and its drones.
+        
+        :param number_of_drones: amount of drones in the swarm
+        :param initial_positions: list of starting positions of the drones
+        :param v_max: maximal speed of the drones
+        :param u_max: maximal control input (acceleration) of the drones
+        """
         self.drones = []
         
         # initialise the drones
@@ -14,6 +22,13 @@ class SwarmManager:
 
 
     def update_swarm(self, dt, vertices, target_points):
+        """
+        Updates the physical state of the whole swarm.
+        
+        :param dt: time step for the update
+        :param vertices: list of 2d positions of vertices of the polygon
+        :param target_points: list of 2d positions of target points
+        """
 
         # find best allocation of the drones
         drone_1d, target_1d, polygon_length = polygon_to_line(vertices, target_points, self.drones)        
@@ -75,6 +90,12 @@ class SwarmManager:
             drone.update_state(dt, u, v)
     
     def get_swarm_status(self):
+        """
+        Retrieves the current status of the swarm.
+        
+        :return positions_list: list of current xy positions of all drones
+        :return heading_vectors_list: list of current heading vectors of all drones
+        """
         positions_list = []
         heading_vectors_list = []
 

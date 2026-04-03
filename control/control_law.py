@@ -3,7 +3,7 @@ import numpy as np
 # math helper functions
 def ortho(v1, v2):
     """
-    docstring for ortho
+    Orthogonalises v2 with respect to v1.
     
     :param v1: first vector, should be a list or array of length 2
     :param v2: second vector, should be a list or array of length 2
@@ -22,7 +22,7 @@ def ortho(v1, v2):
 
 def normalise_ortho(v1, v2):
     """
-    docstring for normalise_ortho
+    Orthogonalises v2 with respect to v1 and normalises the result.
 
     :return: normalised orthogonalised vector
 
@@ -39,7 +39,7 @@ def normalise_ortho(v1, v2):
     
 def check_direction(v1, v2):
     """
-    docstring for check_direction
+    Checks if v1 and v2 point in the same direction.
 
     :return: 1 if v1 and v2 point in the same direction, -1 otherwise
 
@@ -57,7 +57,7 @@ def check_direction(v1, v2):
     
 def closest_point_vector(drone_position, vertex1, vertex):
     """
-    Docstring for closest_point_vector
+    Finds the shortest vector from the drone position to the edge.
     
     :param drone_position: xy position of the drone, should be a list or array of length 2
     :param vertex1: first vertex of the edge, should be a list or array of length 2
@@ -88,7 +88,7 @@ def closest_point_vector(drone_position, vertex1, vertex):
     
 def fly_to_edge(drone, vertex1, vertex):
     """
-    Docstring for fly_to_edge
+    Calculates control inputs to fly the drone towards the edge.
     
     :param drone: instance of the Drone class
     :param vertex1: first vertex of the edge, should be a list or array of length 2
@@ -124,7 +124,7 @@ def fly_to_edge(drone, vertex1, vertex):
 
 def fly_on_edge(drone, vertex1, vertex, target_point):
     """
-    Docstring for fly_on_edge
+    Calculates control inputs to fly the drone along the edge towards the target_point.
 
     :param target_point: point on the edge that the drone should fly towards, should be a list or array of length 2
     :return drone.u: control input (acceleration) 

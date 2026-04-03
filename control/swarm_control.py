@@ -3,10 +3,11 @@ import itertools
 
 def point_to_polygon_distance(point, vertices):
     """
-    Docstring for point_to_polygon_distance
+    Calculates distance from the start of the polygon line to the given point.
     
-    :param point: Description
-    :param vertices: Description
+    :param point: 2d position of the point
+    :param vertices: list of 2d positions of vertices of the polygon
+    :return: 1d distance along the polygon perimeter
 
     calculates distance from the start of the polygon line to the given point
     """
@@ -54,7 +55,7 @@ def point_to_polygon_distance(point, vertices):
 
 def polygon_to_line(vertices, targets, drones):
     """
-    Docstring for polygon_to_line
+    Projects drone and target positions onto a 1D line representing the polygon perimeter.
     
     :param vertices: list of 2d positions of vertices of the polygon
     :param targets: list of 2d positions of target points
@@ -95,7 +96,7 @@ def polygon_to_line(vertices, targets, drones):
 
 def calculate_travel_dist(drone_position, target_position, direction, polygon_length):
     """
-    Docstring for calculate_travel_dist
+    Calculates distance to travel from drone_position to target_position in the given direction.
     
     :param drone_position: position of the drone on the line, should be a scalar
     :param target_position: position of the target on the line, should be a scalar
@@ -127,7 +128,8 @@ def calculate_travel_dist(drone_position, target_position, direction, polygon_le
 
 def check_collision(z_star_list, polygon_length):
     """
-    Docstring for check_collision
+    Checks if there is a collision between drones based on their z_star values.
+    
     :param z_star_list: list of z_star values for each drone, should be a list of scalars
     :param polygon_length: length of the polygon, should be a scalar
     :return: True if there is a collision, False otherwise
@@ -148,7 +150,7 @@ def check_collision(z_star_list, polygon_length):
 
 def send_drones_wherever(drone_positions, target_positions, polygon_length):
     """
-    Docstring for send_drones_wherever
+    Finds the best allocation of targets to drones and optimal flying directions.
     
     :param drone_positions: list of positions of drones on the line, should be a list of scalars
     :param target_positions: list of positions of targets on the line, should be a list of scalars

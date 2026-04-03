@@ -3,9 +3,8 @@ import numpy as np
 class Drone:
     def __init__(self, initial_position, initial_heading, v_max, u_max):
         """
-        Docstring for __init__
+        Initialises the physical model of the drone.
         
-        :param self: 
         :param initial_position: starting position of the drone, should be a list or array of length 2
         :param initial_heading: starting heading direction of the drone, should be a list or array of length 2
         :param v_max: maximal speed of the drone
@@ -32,9 +31,8 @@ class Drone:
 
     def update_state(self, dt, u, v):
         """
-        Docstring for update_state
+        Updates the state of the drone based on the control input and velocity.
         
-        :param self: 
         :param dt: time step for the update
         :param u: control input (acceleration) to be applied, should be a scalar
         :param v: velocity to be applied, should be a scalar

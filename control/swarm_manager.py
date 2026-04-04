@@ -104,3 +104,29 @@ class SwarmManager:
             heading_vectors_list.append(drone.a)
 
         return positions_list, heading_vectors_list
+    
+    def update_driving(self, dt, patrol_points):
+        """
+        Executes the side-to-side sweeping motion for the driving phase.
+        patrol_points is a list of length (number_of_drones + 1).
+        """
+        # Initialize patrol directions if they don't exist yet (1 for forward, -1 for backward)
+        if not hasattr(self, 'patrol_directions'):
+            self.patrol_directions = [1] * len(self.drones)
+
+        for i, drone in enumerate(self.drones):
+            p1 = patrol_points[i]
+            p2 = patrol_points[i + 1]
+            
+            # Determine current target based on patrol direction
+            target = p2 if self.patrol_directions[i] == 1 else p1
+            
+            # Check if drone reached the end of its patrol segment
+            dist_to_target = np.linalg.norm(drone.d - target)
+            if dist_to_target < 0.5:
+                self.patrol_directions[i] *= -1  # Swap direction
+                target = p1 if self.patrol_directions[i] == 1 else p2
+
+            # Use the sliding mode edge logic to slide along the segment
+            u, v = fly_on_edge(drone, p1, p2, target)
+            drone.update_state(dt, u, v)

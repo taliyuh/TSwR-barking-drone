@@ -44,41 +44,67 @@ class AnimalProfile:
 
     # Motion
     max_speed: float
+    accel_threshold: float
+    velocity_damping: float
+
+    # Panic
+    panic_probability: float
+    panic_duration_min: int
+    panic_duration_max: int
+    panic_strength: float
 
 
 ANIMAL_PROFILES = {
     "sheep": AnimalProfile(
         name="Sheep",
-        neighbor_radius=4.0,
-        separation_radius=1.5,
-        cohesion_weight=0.6,
-        separation_weight=1.5,
-        alignment_weight=0.4,
-        drone_repulsion_weight=3.0,
-        noise_weight=0.15,
-        max_speed=1.2,
+        neighbor_radius=2.0,
+        separation_radius=0.75,
+        cohesion_weight=0.3,
+        separation_weight=0.75,
+        alignment_weight=0.2,
+        drone_repulsion_weight=1.5,
+        noise_weight=0.1,
+        max_speed=0.6,
+        accel_threshold=0.08,
+        velocity_damping=0.90,
+        panic_probability=0.012,
+        panic_duration_min=8,
+        panic_duration_max=18,
+        panic_strength=0.9,
     ),
     "goats": AnimalProfile(
         name="Goats",
-        neighbor_radius=3.5,
-        separation_radius=1.2,
-        cohesion_weight=0.4,
-        separation_weight=1.8,
-        alignment_weight=0.3,
-        drone_repulsion_weight=2.2,
-        noise_weight=0.25,
-        max_speed=1.4,
+        neighbor_radius=1.75,
+        separation_radius=0.6,
+        cohesion_weight=0.2,
+        separation_weight=0.9,
+        alignment_weight=0.15,
+        drone_repulsion_weight=1.1,
+        noise_weight=0.2,
+        max_speed=0.7,
+        accel_threshold=0.04,
+        velocity_damping=0.82,
+        panic_probability=0.018,
+        panic_duration_min=6,
+        panic_duration_max=14,
+        panic_strength=1.1,
     ),
     "cows": AnimalProfile(
         name="Cows",
-        neighbor_radius=5.0,
-        separation_radius=2.0,
-        cohesion_weight=0.8,
-        separation_weight=1.2,
-        alignment_weight=0.5,
-        drone_repulsion_weight=1.8,
-        noise_weight=0.08,
-        max_speed=0.9,
+        neighbor_radius=2.5,
+        separation_radius=1.0,
+        cohesion_weight=0.4,
+        separation_weight=0.6,
+        alignment_weight=0.25,
+        drone_repulsion_weight=0.9,
+        noise_weight=0.04,
+        max_speed=0.45,
+        accel_threshold=0.14,
+        velocity_damping=0.95,
+        panic_probability=0.006,
+        panic_duration_min=10,
+        panic_duration_max=24,
+        panic_strength=0.7,
     ),
 }
 
@@ -91,6 +117,8 @@ ANIMAL_PROFILES = {
 class HerdState:
     positions: np.ndarray   # shape (N, 2)
     velocities: np.ndarray  # shape (N, 2)
+    panic_timers: np.ndarray
+    panic_directions: np.ndarray
 
 
 class Drone:
@@ -170,6 +198,8 @@ def limit_speed(v: np.ndarray, max_speed: float) -> np.ndarray:
 def update_herd(state: HerdState, drone: Drone, cfg: SimConfig, profile: AnimalProfile) -> HerdState:
     positions = state.positions.copy()
     velocities = state.velocities.copy()
+    panic_timers = state.panic_timers.copy()
+    panic_directions = state.panic_directions.copy()
     N = len(positions)
 
     new_velocities = velocities.copy()
@@ -215,18 +245,33 @@ def update_herd(state: HerdState, drone: Drone, cfg: SimConfig, profile: AnimalP
             strength = (1.0 - drone_dist / cfg.drone_influence_radius)
             drone_repulsion = away * strength
 
-        # Noise
-        noise = np.random.randn(2)
-
-        accel = (
-            profile.cohesion_weight * cohesion
-            + profile.alignment_weight * alignment
-            + profile.separation_weight * separation
-            + profile.drone_repulsion_weight * drone_repulsion
-            + profile.noise_weight * noise
+        base_accel = (
+                profile.cohesion_weight * cohesion
+                + profile.alignment_weight * alignment
+                + profile.separation_weight * separation
+                + profile.drone_repulsion_weight * drone_repulsion
         )
 
-        new_velocities[i] = v_i + cfg.dt * accel
+        noise = profile.noise_weight * np.random.randn(2)
+
+        if panic_timers[i] == 0:
+            if np.random.rand() < profile.panic_probability * cfg.dt:
+                centroid = compute_centroid(positions)
+                dir_vec = positions[i] - centroid
+                panic_directions[i] = dir_vec / (np.linalg.norm(dir_vec) + 1e-8)
+
+                panic_timers[i] = np.random.randint(profile.panic_duration_min, profile.panic_duration_max + 1)
+
+        panic_force = np.zeros(2)
+        if panic_timers[i] > 0:
+            panic_force = profile.panic_strength * panic_directions[i]
+            panic_timers[i] -= 1
+
+        total_accel = base_accel + noise + panic_force
+        if np.linalg.norm(total_accel) > profile.accel_threshold:
+            new_velocities[i] = v_i + cfg.dt * total_accel
+        else:
+            new_velocities[i] = profile.velocity_damping * v_i
 
     new_velocities = limit_speed(new_velocities, profile.max_speed)
     new_positions = positions + cfg.dt * new_velocities
@@ -245,7 +290,7 @@ def update_herd(state: HerdState, drone: Drone, cfg: SimConfig, profile: AnimalP
         new_positions[high_hit, dim] = high
         new_velocities[high_hit, dim] *= -0.6
 
-    return HerdState(new_positions, new_velocities)
+    return HerdState(new_positions, new_velocities, panic_timers, panic_directions)
 
 
 # =========================
@@ -262,8 +307,11 @@ class Simulation:
             np.random.uniform(cfg.world_min + cfg.spawn_margin, cfg.world_max - cfg.spawn_margin, cfg.n_animals),
         ])
         velocities = np.random.randn(cfg.n_animals, 2) * 0.3
+        panic_timers = np.zeros(cfg.n_animals, dtype=int)
+        panic_directions = np.zeros((cfg.n_animals, 2), dtype=float)
 
-        self.herd = HerdState(positions=positions, velocities=velocities)
+        self.herd = HerdState(positions=positions, velocities=velocities, panic_timers=panic_timers,
+                              panic_directions=panic_directions)
         self.drone = Drone(position=np.array([8.0, 8.0]))
 
         self.time = 0.0
@@ -284,7 +332,7 @@ class Simulation:
         if ext_hull is None:
             return
 
-        ext_hull_points = np.array(ext_hull.exterior.coords)
+        ext_hull_points = np.array(ext_hull.exterior.coords[:-1])
 
         target = random_point_on_polygon_boundary(ext_hull_points)
 

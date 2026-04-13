@@ -1,7 +1,8 @@
 # Barking Drone
 
-The project group consists of Mikołaj Lipiński and Bartłomiej Hryniewski.
+[Video link](https://youtu.be/P8s404sTP94)
 
+The project group consists of Mikołaj Lipiński and Bartłomiej Hryniewski.
 
 ## Description
 

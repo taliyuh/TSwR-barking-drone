@@ -1,0 +1,8 @@
+numpy
+matplotlib
+PyQt6
+scipy
+shapely
+
+# Linux system dependency for Qt-based matplotlib backends:
+# sudo apt install libxcb-cursor0

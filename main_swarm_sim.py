@@ -16,16 +16,20 @@ from swarm_manager import SwarmManager
 
 @dataclass
 class SimConfig:
-    n_animals: int = 40
+    n_animals: int = 100
     n_drones: int = 4
     dt: float = 0.1
     world_min: float = -20.0
     world_max: float = 20.0
     spawn_margin: float = 5.0
 
+    accel_threshold: float = 0.15
+    velocity_damping: float = 0.95
+
     drone_influence_radius: float = 8.0
     drone_v_max: float = 4.0
     drone_u_max: float = 3.0
+    drone_vision_radius: float = 10.0
 
     # Geometry
     extended_hull_margin: float = 3.0
@@ -57,40 +61,57 @@ class AnimalProfile:
     # Motion
     max_speed: float
 
+    panic_probability: float
+    panic_duration_min: int
+    panic_duration_max: int
+    panic_strength: float
+
 
 ANIMAL_PROFILES = {
     "sheep": AnimalProfile(
         name="Sheep",
-        neighbor_radius=4.0,
-        separation_radius=1.5,
-        cohesion_weight=0.6,
-        separation_weight=1.5,
-        alignment_weight=0.4,
-        drone_repulsion_weight=3.0,
-        noise_weight=0.15,
-        max_speed=1.2,
+        neighbor_radius=4.0/2,
+        separation_radius=1.5/2,
+        cohesion_weight=0.6/2,
+        separation_weight=1.5/2,
+        alignment_weight=0.4/2,
+        drone_repulsion_weight=3.0/2,
+        noise_weight=0.15/2,
+        max_speed=1.2/2,
+        panic_probability=0.012/2,
+        panic_duration_min=8,
+        panic_duration_max=18,
+        panic_strength=1.8/2,
     ),
     "goats": AnimalProfile(
         name="Goats",
-        neighbor_radius=3.5,
-        separation_radius=1.2,
-        cohesion_weight=0.4,
-        separation_weight=1.8,
-        alignment_weight=0.3,
-        drone_repulsion_weight=2.2,
-        noise_weight=0.25,
-        max_speed=1.4,
+        neighbor_radius=3.5/2,
+        separation_radius=1.2/2,
+        cohesion_weight=0.4/2,
+        separation_weight=1.8/2,
+        alignment_weight=0.3/2,
+        drone_repulsion_weight=2.2/2,
+        noise_weight=0.25/2,
+        max_speed=1.4/2,
+        panic_probability=0.018/2,
+        panic_duration_min=6,
+        panic_duration_max=14,
+        panic_strength=2.1/2,
     ),
     "cows": AnimalProfile(
         name="Cows",
-        neighbor_radius=5.0,
-        separation_radius=2.0,
-        cohesion_weight=0.8,
-        separation_weight=1.2,
-        alignment_weight=0.5,
-        drone_repulsion_weight=1.8,
-        noise_weight=0.08,
-        max_speed=0.9,
+        neighbor_radius=5.0/2,
+        separation_radius=2.0/2,
+        cohesion_weight=0.8/2,
+        separation_weight=1.2/2,
+        alignment_weight=0.5/2,
+        drone_repulsion_weight=1.8/2,
+        noise_weight=0.08/2,
+        max_speed=0.9/2,
+        panic_probability=0.006/2,
+        panic_duration_min=10,
+        panic_duration_max=24,
+        panic_strength=1.4/2,
     ),
 }
 
@@ -102,6 +123,8 @@ ANIMAL_PROFILES = {
 class HerdState:
     positions: np.ndarray   # shape (N, 2)
     velocities: np.ndarray  # shape (N, 2)
+    panic_timers: np.ndarray
+    panic_directions: np.ndarray
 
 # =========================
 # GEOMETRY HELPERS
@@ -184,6 +207,128 @@ def generate_driving_arc(centroid: np.ndarray, goal: np.ndarray, radius: float, 
 # FLOCKING / HERD DYNAMICS
 # =========================
 
+
+def limit_speed_single(v, max_speed):
+    norm = np.linalg.norm(v)
+    if norm > max_speed:
+        return (v / norm) * max_speed
+    return v
+
+
+def compute_observations(state: HerdState, swarm_drones: list, cfg: SimConfig, profile: AnimalProfile,
+                         prev_positions=None, prev_velocities=None):
+    positions = state.positions
+    velocities = state.velocities
+    N = len(positions)
+
+    visible_mask = np.zeros(N, dtype=bool)
+
+    for drone in swarm_drones:
+        dists = np.linalg.norm(positions - drone.d, axis=1)
+        visible_mask |= (dists < cfg.drone_vision_radius)
+
+    if prev_positions is None:
+        observed_positions = positions.copy()
+        observed_velocities = velocities.copy()
+    else:
+        observed_positions = prev_positions.copy()
+        observed_velocities = prev_velocities.copy()
+
+    new_positions = observed_positions.copy()
+    new_velocities = observed_velocities.copy()
+
+    for i in range(N):
+        if visible_mask[i]:
+            new_positions[i] = positions[i]
+            new_velocities[i] = velocities[i]
+        else:
+            accel = deterministic_update(
+                observed_positions[i],
+                observed_velocities[i],
+                swarm_drones,
+                observed_positions,
+                observed_velocities,
+                profile,
+                cfg
+            )
+
+            if np.linalg.norm(accel) > cfg.accel_threshold:
+                v_est = observed_velocities[i] + cfg.dt * accel
+            else:
+                v_est = cfg.velocity_damping * observed_velocities[i]
+
+            v_est = limit_speed_single(v_est, profile.max_speed)
+
+            p_est = observed_positions[i] + cfg.dt * v_est
+
+            new_positions[i] = p_est
+            new_velocities[i] = v_est
+
+    observed_positions = new_positions
+    observed_velocities = new_velocities
+
+    for dim in range(2):
+        low = cfg.world_min
+        high = cfg.world_max
+
+        low_hit = observed_positions[:, dim] < low
+        high_hit = observed_positions[:, dim] > high
+
+        observed_positions[low_hit, dim] = low
+        observed_velocities[low_hit, dim] *= -0.6
+
+        observed_positions[high_hit, dim] = high
+        observed_velocities[high_hit, dim] *= -0.6
+
+    return observed_positions, observed_velocities, visible_mask
+
+
+def deterministic_update(p_i, v_i, swarm_drones, positions, velocities, profile, cfg):
+    rel = positions - p_i
+    dists = np.linalg.norm(rel, axis=1)
+
+    neighbor_mask = (dists > 1e-8) & (dists < profile.neighbor_radius)
+    sep_mask = (dists > 1e-8) & (dists < profile.separation_radius)
+
+    # Cohesion
+    cohesion = np.zeros(2)
+    if np.any(neighbor_mask):
+        local_center = np.mean(positions[neighbor_mask], axis=0)
+        cohesion = local_center - p_i
+
+    # Alignment
+    alignment = np.zeros(2)
+    if np.any(neighbor_mask):
+        local_velocity = np.mean(velocities[neighbor_mask], axis=0)
+        alignment = local_velocity - v_i
+
+    # Separation
+    separation = np.zeros(2)
+    if np.any(sep_mask):
+        close_rel = rel[sep_mask]
+        close_dists = dists[sep_mask][:, None]
+        separation = -np.sum(close_rel / (close_dists ** 2 + 1e-6), axis=0)
+
+    # Drone repulsion from ALL drones
+    drone_repulsion = np.zeros(2)
+    for drone in swarm_drones:
+        drone_vec = drone.d - p_i
+        drone_dist = np.linalg.norm(drone_vec)
+
+        if 1e-8 < drone_dist < cfg.drone_influence_radius:
+            away = -drone_vec / (drone_dist + 1e-6)
+            strength = (1.0 - drone_dist / cfg.drone_influence_radius)
+            drone_repulsion += away * strength
+
+    accel = (
+            profile.cohesion_weight * cohesion
+            + profile.alignment_weight * alignment
+            + profile.separation_weight * separation
+            + profile.drone_repulsion_weight * drone_repulsion
+    )
+
+    return accel
+
 def limit_speed(v: np.ndarray, max_speed: float) -> np.ndarray:
     norms = np.linalg.norm(v, axis=1, keepdims=True)
     too_fast = norms > max_speed
@@ -198,6 +343,8 @@ def limit_speed(v: np.ndarray, max_speed: float) -> np.ndarray:
 def update_herd(state: HerdState, swarm_drones: list, cfg: SimConfig, profile: AnimalProfile) -> HerdState:
     positions = state.positions.copy()
     velocities = state.velocities.copy()
+    panic_timers = state.panic_timers.copy()
+    panic_directions = state.panic_directions.copy()
     N = len(positions)
 
     new_velocities = velocities.copy()
@@ -244,18 +391,33 @@ def update_herd(state: HerdState, swarm_drones: list, cfg: SimConfig, profile: A
                 strength = (1.0 - drone_dist / cfg.drone_influence_radius)
                 drone_repulsion += away * strength
 
-        # Noise
-        noise = np.random.randn(2)
-
-        accel = (
-            profile.cohesion_weight * cohesion
-            + profile.alignment_weight * alignment
-            + profile.separation_weight * separation
-            + profile.drone_repulsion_weight * drone_repulsion
-            + profile.noise_weight * noise
+        base_accel = (
+                profile.cohesion_weight * cohesion
+                + profile.alignment_weight * alignment
+                + profile.separation_weight * separation
+                + profile.drone_repulsion_weight * drone_repulsion
         )
 
-        new_velocities[i] = v_i + cfg.dt * accel
+        noise = profile.noise_weight * np.random.randn(2)
+
+        if panic_timers[i] == 0:
+            if np.random.rand() < profile.panic_probability:
+                centroid = compute_centroid(positions)
+                dir_vec = positions[i] - centroid
+                panic_directions[i] = dir_vec / (np.linalg.norm(dir_vec) + 1e-8)
+
+                panic_timers[i] = np.random.randint(profile.panic_duration_min, profile.panic_duration_max + 1)
+
+        panic_force = np.zeros(2)
+        if panic_timers[i] > 0:
+            panic_force = profile.panic_strength * panic_directions[i]
+            panic_timers[i] -= 1
+
+        if np.linalg.norm(base_accel) > cfg.accel_threshold:
+            accel = base_accel + noise + panic_force
+            new_velocities[i] = v_i + cfg.dt * accel
+        else:
+            new_velocities[i] = cfg.velocity_damping * v_i
 
     new_velocities = limit_speed(new_velocities, profile.max_speed)
     new_positions = positions + cfg.dt * new_velocities
@@ -274,7 +436,7 @@ def update_herd(state: HerdState, swarm_drones: list, cfg: SimConfig, profile: A
         new_positions[high_hit, dim] = high
         new_velocities[high_hit, dim] *= -0.6
 
-    return HerdState(new_positions, new_velocities)
+    return HerdState(new_positions, new_velocities, panic_timers, panic_directions)
 
 
 # =========================
@@ -292,10 +454,18 @@ class Simulation:
         ])
         velocities = np.random.randn(cfg.n_animals, 2) * 0.3
 
-        self.herd = HerdState(positions=positions, velocities=velocities)
+        panic_timers = np.zeros(cfg.n_animals, dtype=int)
+        panic_directions = np.zeros((cfg.n_animals, 2), dtype=float)
+
+        self.herd = HerdState(positions=positions, velocities=velocities, panic_timers=panic_timers,
+                              panic_directions=panic_directions)
         
         self.goal = np.array(self.cfg.goal_position)
         self.is_driving = False
+
+        self.observed_positions = positions
+        self.observed_velocities = velocities
+        self.visible_mask = np.zeros(len(positions), dtype=bool)
 
         # Initialize Swarm Manager
         initial_positions = []
@@ -348,6 +518,14 @@ class Simulation:
         # Update animal positions considering drone fields
         self.herd = update_herd(self.herd, self.swarm_manager.drones, self.cfg, self.profile)
         self.time += self.cfg.dt
+        self.observed_positions, self.observed_velocities, self.visible_mask = compute_observations(
+            self.herd,
+            self.swarm_manager.drones,
+            self.cfg,
+            self.profile,
+            self.observed_positions,
+            self.observed_velocities
+        )
 
     def get_geometry(self):
         positions = self.herd.positions
@@ -386,6 +564,7 @@ def draw_simulation(ax, sim: Simulation):
 
     geom = sim.get_geometry()
     positions = sim.herd.positions
+    observed_positions = sim.observed_positions
     centroid = geom["centroid"]
     hull_points = geom["hull_points"]
     ext_hull = geom["extended_hull"]
@@ -436,6 +615,51 @@ def draw_simulation(ax, sim: Simulation):
         ax.scatter(dp[:, 0], dp[:, 1], s=100, marker="X", label="Drones", color='black')
         ax.quiver(dp[:, 0], dp[:, 1], dh[:, 0], dh[:, 1], color='black', scale=20, width=0.005)
 
+    for drone in sim.swarm_manager.drones:
+        x, y = drone.d
+
+        # Vision radius (większy, "sensor")
+        vision_circle = plt.Circle(
+            (x, y),
+            sim.cfg.drone_vision_radius,
+            color='blue',
+            fill=False,
+            linestyle='--',
+            alpha=0.3
+        )
+        ax.add_patch(vision_circle)
+
+        # Influence radius (mniejszy, "force")
+        influence_circle = plt.Circle(
+            (x, y),
+            sim.cfg.drone_influence_radius,
+            color='red',
+            fill=False,
+            linestyle='-',
+            alpha=0.4
+        )
+        ax.add_patch(influence_circle)
+
+    visible = sim.visible_mask
+
+    ax.scatter(
+        observed_positions[visible, 0],
+        observed_positions[visible, 1],
+        color=(0.0, 0.8, 0.3),
+        label="Visible",
+        s=20,
+        marker="x"
+    )
+
+    ax.scatter(
+        observed_positions[~visible, 0],
+        observed_positions[~visible, 1],
+        color="red",
+        label="Estimated",
+        s=20,
+        marker="x"
+    )
+
     ax.set_xlim(*sim.cfg.xlim)
     ax.set_ylim(*sim.cfg.ylim)
     ax.set_aspect("equal")
@@ -474,6 +698,7 @@ def main():
 
     plt.ioff()
     plt.show()
+
 
 if __name__ == "__main__":
     main()

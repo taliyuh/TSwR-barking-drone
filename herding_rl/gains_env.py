@@ -10,7 +10,6 @@ from main_swarm_sim import (
     SimConfig, HerdState, AnimalProfile, ANIMAL_PROFILES,
     update_herd, compute_centroid, herd_radius,
     compute_convex_hull, compute_extended_hull, generate_target_points, generate_driving_arc,
-    # ROO-ADAPT: Added for partial-observability estimation model from animals-model branch
     compute_observations,
 )
 from control.swarm_manager import SwarmManager
@@ -37,7 +36,6 @@ class HerdingGainTunerEnv(gym.Env):
         # Observation space: 19 features (normalized) + phase + time + 3 gains = 23
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(23,), dtype=np.float32)
 
-        # ROO-ADAPT: Added accel_threshold, velocity_damping, drone_vision_radius for animals-model HerdState
         self._sim_cfg_for_herd = SimConfig(
             n_animals=self.env_cfg.n_animals,
             n_drones=self.env_cfg.n_drones,
@@ -68,7 +66,6 @@ class HerdingGainTunerEnv(gym.Env):
         self.sim_cfg.goal_position = goal
         self.sim_cfg.success_radius = success_radius
         # Rebuild the cached SimConfig
-        # ROO-ADAPT: Added accel_threshold, velocity_damping, drone_vision_radius for animals-model HerdState
         self._sim_cfg_for_herd = SimConfig(
             n_animals=n_animals,
             n_drones=self.env_cfg.n_drones,
@@ -135,7 +132,6 @@ class HerdingGainTunerEnv(gym.Env):
                                    cfg.world_max - cfg.spawn_margin, n),
         ])
         velocities = self.np_random.standard_normal((n, 2)) * 0.1
-        # ROO-ADAPT: HerdState now requires panic_timers and panic_directions (animals-model branch)
         panic_timers = np.zeros(n, dtype=int)
         panic_directions = np.zeros((n, 2), dtype=float)
         self.herd = HerdState(
@@ -208,7 +204,7 @@ class HerdingGainTunerEnv(gym.Env):
 
             self.herd = update_herd(self.herd, self.swarm_manager.drones, self._sim_cfg_for_herd, self.profile)
 
-        # ROO-ADAPT: Apply partial-observability estimation when enabled (animals-model branch)
+        # Apply partial-observability estimation when enabled
         if self.sim_cfg.use_partial_observability:
             observed_pos, observed_vel, _ = compute_observations(
                 self.herd, self.swarm_manager.drones,

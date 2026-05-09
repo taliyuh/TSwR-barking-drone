@@ -1,4 +1,3 @@
-import os
 from dataclasses import dataclass, field
 import torch
 
@@ -16,11 +15,9 @@ class SimConfigRL:
     extended_hull_margin: float = 3.0
     goal_position: tuple = (18.0, 18.0)
     success_radius: float = 3.0
-    # ROO-ADAPT: New fields from animals-model branch for HerdState compatibility
     accel_threshold: float = 0.15
     velocity_damping: float = 0.95
     drone_vision_radius: float = 10.0
-    # ROO-ADAPT: Gates the new compute_observations() partial-observability model
     use_partial_observability: bool = False
 
 @dataclass

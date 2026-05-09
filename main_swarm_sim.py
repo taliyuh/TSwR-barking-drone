@@ -208,6 +208,19 @@ def generate_driving_arc(centroid: np.ndarray, goal: np.ndarray, radius: float, 
 # =========================
 
 
+def _clamp_to_bounds(positions: np.ndarray, velocities: np.ndarray, world_min: float, world_max: float, restitution: float = -0.6):
+    """Apply boundary bounce to positions and velocities. Modifies arrays in-place."""
+    for dim in range(2):
+        low_hit = positions[:, dim] < world_min
+        high_hit = positions[:, dim] > world_max
+
+        positions[low_hit, dim] = world_min
+        velocities[low_hit, dim] *= restitution
+
+        positions[high_hit, dim] = world_max
+        velocities[high_hit, dim] *= restitution
+
+
 def compute_observations(state: HerdState, swarm_drones: list, cfg: SimConfig, profile: AnimalProfile,
                          prev_positions=None, prev_velocities=None):
     positions = state.positions
@@ -250,7 +263,10 @@ def compute_observations(state: HerdState, swarm_drones: list, cfg: SimConfig, p
             else:
                 v_est = cfg.velocity_damping * observed_velocities[i]
 
-            v_est = limit_speed_single(v_est, profile.max_speed)
+            # Use vectorized limit_speed for a single vector
+            v_norm = np.linalg.norm(v_est)
+            if v_norm > profile.max_speed:
+                v_est = (v_est / v_norm) * profile.max_speed
 
             p_est = observed_positions[i] + cfg.dt * v_est
 
@@ -260,18 +276,7 @@ def compute_observations(state: HerdState, swarm_drones: list, cfg: SimConfig, p
     observed_positions = new_positions
     observed_velocities = new_velocities
 
-    for dim in range(2):
-        low = cfg.world_min
-        high = cfg.world_max
-
-        low_hit = observed_positions[:, dim] < low
-        high_hit = observed_positions[:, dim] > high
-
-        observed_positions[low_hit, dim] = low
-        observed_velocities[low_hit, dim] *= -0.6
-
-        observed_positions[high_hit, dim] = high
-        observed_velocities[high_hit, dim] *= -0.6
+    _clamp_to_bounds(observed_positions, observed_velocities, cfg.world_min, cfg.world_max)
 
     return observed_positions, observed_velocities, visible_mask
 
@@ -416,18 +421,7 @@ def update_herd(state: HerdState, swarm_drones: list, cfg: SimConfig, profile: A
     new_positions = positions + cfg.dt * new_velocities
 
     # Simple boundary handling (bounce)
-    for dim in range(2):
-        low = cfg.world_min
-        high = cfg.world_max
-
-        low_hit = new_positions[:, dim] < low
-        high_hit = new_positions[:, dim] > high
-
-        new_positions[low_hit, dim] = low
-        new_velocities[low_hit, dim] *= -0.6
-
-        new_positions[high_hit, dim] = high
-        new_velocities[high_hit, dim] *= -0.6
+    _clamp_to_bounds(new_positions, new_velocities, cfg.world_min, cfg.world_max)
 
     return HerdState(new_positions, new_velocities, panic_timers, panic_directions)
 

@@ -21,13 +21,14 @@ class SwarmManager:
             self.drones.append(drone)
 
 
-    def update_swarm(self, dt, vertices, target_points):
+    def update_swarm(self, dt, vertices, target_points, gains=(1.0, 1.0, 1.0)):
         """
         Updates the physical state of the whole swarm.
         
         :param dt: time step for the update
         :param vertices: list of 2d positions of vertices of the polygon
         :param target_points: list of 2d positions of target points
+        :param gains: tuple of (k_edge, k_target, v_scale) for control law
         """
 
         # find best allocation of the drones
@@ -40,6 +41,8 @@ class SwarmManager:
         else: 
             return
         
+        k_edge, k_target, v_scale = gains
+
         for i, drone in enumerate(self.drones):
             
             # find edge closest to the drone
@@ -58,11 +61,6 @@ class SwarmManager:
                     min_dist = distance
                     closest_v1 = v1
                     closest_v2 = v2
-            
-            # The control law handles BOTH moving to the edge and moving along the edge simultaneously.
-            # b_star = b + o_star. 'b' pulls the drone to the closest edge, 'o_star' pulls it to the target.
-            # A hard threshold of 0.5 causes severe chattering and velocity reversals.
-            # We simply compute the intermediate target and use fly_on_edge in all cases.
             
             assigned_target = assigned_targets[i]
             assigned_direction = assigned_directions[i]
@@ -85,7 +83,8 @@ class SwarmManager:
                 else:
                     intermediate_target = closest_v1
             
-            u, v = fly_on_edge(drone, closest_v1, closest_v2, intermediate_target)
+            u, v = fly_on_edge(drone, closest_v1, closest_v2, intermediate_target, 
+                               k_edge=k_edge, k_target=k_target, v_scale=v_scale)
 
             drone.update_state(dt, u, v)
     
@@ -105,14 +104,17 @@ class SwarmManager:
 
         return positions_list, heading_vectors_list
     
-    def update_driving(self, dt, patrol_points):
+    def update_driving(self, dt, patrol_points, gains=(1.0, 1.0, 1.0)):
         """
         Executes the side-to-side sweeping motion for the driving phase.
         patrol_points is a list of length (number_of_drones + 1).
+        :param gains: tuple of (k_edge, k_target, v_scale) for control law
         """
         # Initialize patrol directions if they don't exist yet (1 for forward, -1 for backward)
         if not hasattr(self, 'patrol_directions'):
             self.patrol_directions = [1] * len(self.drones)
+
+        k_edge, k_target, v_scale = gains
 
         for i, drone in enumerate(self.drones):
             p1 = patrol_points[i]
@@ -128,5 +130,6 @@ class SwarmManager:
                 target = p1 if self.patrol_directions[i] == 1 else p2
 
             # Use the sliding mode edge logic to slide along the segment
-            u, v = fly_on_edge(drone, p1, p2, target)
+            u, v = fly_on_edge(drone, p1, p2, target,
+                               k_edge=k_edge, k_target=k_target, v_scale=v_scale)
             drone.update_state(dt, u, v)

@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
 from scipy.spatial import ConvexHull
-from shapely.geometry import Polygon, Point, LineString
+from shapely.geometry import Polygon, LineString
 import sys
 import os
 
@@ -206,13 +206,6 @@ def generate_driving_arc(centroid: np.ndarray, goal: np.ndarray, radius: float, 
 # =========================
 # FLOCKING / HERD DYNAMICS
 # =========================
-
-
-def limit_speed_single(v, max_speed):
-    norm = np.linalg.norm(v)
-    if norm > max_speed:
-        return (v / norm) * max_speed
-    return v
 
 
 def compute_observations(state: HerdState, swarm_drones: list, cfg: SimConfig, profile: AnimalProfile,

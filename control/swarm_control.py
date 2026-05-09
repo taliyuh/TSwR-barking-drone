@@ -66,7 +66,6 @@ def polygon_to_line(vertices, targets, drones):
     """
 
     drone_positions = []
-    vertices_poisitions = []
     target_positions = []
 
     # calculate the length of the polygon
@@ -75,7 +74,6 @@ def polygon_to_line(vertices, targets, drones):
         vertex1 = vertices[i]
         vertex2 = vertices[(i + 1) % len(vertices)]
 
-        vertices_poisitions.append(np.linalg.norm(np.array(vertex2) - np.array(vertex1)))
         polygon_length += np.linalg.norm(np.array(vertex2) - np.array(vertex1))
      
     # calculate position of each drone
@@ -100,28 +98,31 @@ def calculate_travel_dist(drone_position, target_position, direction, polygon_le
     
     :param drone_position: position of the drone on the line, should be a scalar
     :param target_position: position of the target on the line, should be a scalar
-    :param direction: direction of travel, should be 1 or -1
+    :param direction: direction of travel, should be 0 (left) or 1 (right)
     :param polygon_length: length of the polygon, should be a scalar
     :return: distance to travel from drone_position to target_position in the given direction
 
     calculates distance to travel from drone_position to target_position in the given direction
     """
 
-    lambda_l = lambda_r = 0
-
     # check if drone crossed the target, differentiate direction
     if target_position > drone_position and direction == 0:
-        lambda_l = 1 # left
-    elif target_position < drone_position and direction == 1:
-        lambda_r = 1 # right
+        wrap_left = 1
+    else:
+        wrap_left = 0
+
+    if target_position < drone_position and direction == 1:
+        wrap_right = 1
+    else:
+        wrap_right = 0
 
     # calculate travel distance based on direction
     if direction == 0:
-        z_star = target_position - lambda_l * polygon_length
+        z_star = target_position - wrap_left * polygon_length
         travel_distance = drone_position - z_star
 
     elif direction == 1:
-        z_star = target_position + lambda_r * polygon_length
+        z_star = target_position + wrap_right * polygon_length
         travel_distance = z_star - drone_position
 
     return travel_distance, z_star

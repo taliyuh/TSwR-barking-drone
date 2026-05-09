@@ -1,3 +1,7 @@
+# DEPRECATED-CLEANUP: This file is the original single-drone simulation.
+# All functionality has been superseded by main_swarm_sim.py (multi-drone version).
+# Kept for reference only. Do not import from this file in new code.
+
 import numpy as np
 import matplotlib.pyplot as plt
 from dataclasses import dataclass

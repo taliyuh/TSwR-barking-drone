@@ -55,52 +55,50 @@ def check_direction(v1, v2):
     else:
         return -1
     
-def closest_point_vector(drone_position, vertex1, vertex):
+def closest_point_vector(drone_position, vertex1, vertex2):
     """
     Finds the shortest vector from the drone position to the edge.
     
     :param drone_position: xy position of the drone, should be a list or array of length 2
     :param vertex1: first vertex of the edge, should be a list or array of length 2
-    :param vertex: second vertex of the edge, should be a list or array of length 2
-    :return: vector from the drone position to the closest point on the edge defined by vertex1 and vertex
+    :param vertex2: second vertex of the edge, should be a list or array of length 2
+    :return: vector from the drone position to the closest point on the edge defined by vertex1 and vertex2
 
-    find the shortest vector from the drone position to the edge defined by vertex1 and vertex
+    find the shortest vector from the drone position to the edge defined by vertex1 and vertex2
     
     """
     drone_position = np.array(drone_position, dtype=float)
     vertex1 = np.array(vertex1, dtype=float)
-    vertex = np.array(vertex, dtype=float)
+    vertex2 = np.array(vertex2, dtype=float)
 
-    q_vector = vertex - vertex1
+    q_vector = vertex2 - vertex1
     p_vector = drone_position - vertex1
 
     # projection scalar t
     t = np.dot(p_vector, q_vector) / np.dot(q_vector, q_vector)
 
     if t < 0:
-        closest_point = vertex1
         return -p_vector
     elif t > 1:
-        closest_point = vertex
         return q_vector - p_vector
     else:
         return (t * q_vector) - p_vector
     
-def fly_to_edge(drone, vertex1, vertex):
+def fly_to_edge(drone, vertex1, vertex2):
     """
     Calculates control inputs to fly the drone towards the edge.
     
     :param drone: instance of the Drone class
     :param vertex1: first vertex of the edge, should be a list or array of length 2
-    :param vertex: second vertex of the edge, should be a list or array of length 2
-    :return drone.u: control input (acceleration)  
+    :param vertex2: second vertex of the edge, should be a list or array of length 2
+    :return drone.u: control input (acceleration)
     :return drone.v: velocity
 
-    drone should fly towards the edge defined by vertex1 and vertex, using the control law defined in the article
+    drone should fly towards the edge defined by vertex1 and vertex2, using the control law defined in the article
     """
 
     # b(t) - pulls drone towards a vertex
-    b = closest_point_vector(drone.d, vertex1, vertex)
+    b = closest_point_vector(drone.d, vertex1, vertex2)
 
     if np.linalg.norm(b) < 0.001:
         drone.u = np.zeros(2)
@@ -122,24 +120,27 @@ def fly_to_edge(drone, vertex1, vertex):
 
     return drone.u, drone.v
 
-def fly_on_edge(drone, vertex1, vertex, target_point):
+def fly_on_edge(drone, vertex1, vertex2, target_point, k_edge=1.0, k_target=1.0, v_scale=1.0):
     """
     Calculates control inputs to fly the drone along the edge towards the target_point.
 
     :param target_point: point on the edge that the drone should fly towards, should be a list or array of length 2
-    :return drone.u: control input (acceleration) 
+    :param k_edge: gain for attraction to the edge
+    :param k_target: gain for attraction to the target
+    :param v_scale: velocity multiplier
+    :return drone.u: control input (acceleration)
     :return drone.v: velocity
 
-    drone should fly along the edge defined by vertex1 and vertex towards the target_point, using the control law defined in the article
+    drone should fly along the edge defined by vertex1 and vertex2 towards the target_point, using the control law defined in the article
     """
 
-    b = closest_point_vector(drone.d, vertex1, vertex)
+    b = closest_point_vector(drone.d, vertex1, vertex2)
     
     # o*(t) - vector from drone position to the target point
     o_star = target_point - drone.d
 
     # master vector:
-    b_star = b + o_star
+    b_star = (k_edge * b) + (k_target * o_star)
 
     if np.linalg.norm(b_star) < 0.001:
         drone.u = np.zeros(2)
@@ -157,6 +158,6 @@ def fly_on_edge(drone, vertex1, vertex, target_point):
         drone.u = np.zeros(2)
 
     alignment = np.dot(drone.a, b_star_normalised)
-    drone.v = drone.v_max * alignment
+    drone.v = drone.v_max * alignment * v_scale
 
     return drone.u, drone.v

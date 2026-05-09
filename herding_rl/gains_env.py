@@ -36,17 +36,7 @@ class HerdingGainTunerEnv(gym.Env):
         # Observation space: 19 features (normalized) + phase + time + 3 gains = 23
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(23,), dtype=np.float32)
 
-        self._sim_cfg_for_herd = SimConfig(
-            n_animals=self.env_cfg.n_animals,
-            n_drones=self.env_cfg.n_drones,
-            dt=self.env_cfg.dt,
-            world_min=self.sim_cfg.world_min,
-            world_max=self.sim_cfg.world_max,
-            drone_influence_radius=self.sim_cfg.drone_influence_radius,
-            accel_threshold=self.sim_cfg.accel_threshold,
-            velocity_damping=self.sim_cfg.velocity_damping,
-            drone_vision_radius=self.sim_cfg.drone_vision_radius,
-        )
+        self._sim_cfg_for_herd = self._build_sim_config()
 
         self.herd = None
         self.swarm_manager = None
@@ -60,14 +50,10 @@ class HerdingGainTunerEnv(gym.Env):
         self.gathering_threshold_radius = 6.0
         self.gathering_phase = True
 
-    def set_curriculum(self, n_animals, goal, success_radius):
-        """Update difficulty parameters (called between episodes)."""
-        self.env_cfg.n_animals = n_animals
-        self.sim_cfg.goal_position = goal
-        self.sim_cfg.success_radius = success_radius
-        # Rebuild the cached SimConfig
-        self._sim_cfg_for_herd = SimConfig(
-            n_animals=n_animals,
+    def _build_sim_config(self):
+        """Build a SimConfig from current env/sim configs."""
+        return SimConfig(
+            n_animals=self.env_cfg.n_animals,
             n_drones=self.env_cfg.n_drones,
             dt=self.env_cfg.dt,
             world_min=self.sim_cfg.world_min,
@@ -77,6 +63,14 @@ class HerdingGainTunerEnv(gym.Env):
             velocity_damping=self.sim_cfg.velocity_damping,
             drone_vision_radius=self.sim_cfg.drone_vision_radius,
         )
+
+    def set_curriculum(self, n_animals, goal, success_radius):
+        """Update difficulty parameters (called between episodes)."""
+        self.env_cfg.n_animals = n_animals
+        self.sim_cfg.goal_position = goal
+        self.sim_cfg.success_radius = success_radius
+        # Rebuild the cached SimConfig
+        self._sim_cfg_for_herd = self._build_sim_config()
 
     def _get_obs(self):
         positions = self.herd.positions

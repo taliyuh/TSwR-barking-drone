@@ -6,16 +6,14 @@ from shapely.geometry import Polygon, LineString
 import sys
 import os
 
-# Append the control module so we can import it
+# append the control dir
 sys.path.append(os.path.join(os.path.dirname(__file__), 'control'))
 from swarm_manager import SwarmManager
 
-# =========================
-# CONFIG
-# =========================
-
+# simulaton config
 @dataclass
 class SimConfig:
+    # world config
     n_animals: int = 100
     n_drones: int = 4
     dt: float = 0.1
@@ -23,22 +21,24 @@ class SimConfig:
     world_max: float = 20.0
     spawn_margin: float = 5.0
 
-    accel_threshold: float = 0.15
+    accel_threshold: float = 0.15 
     velocity_damping: float = 0.95
 
+    # distance at which drone impacts animals
     drone_influence_radius: float = 8.0
+
     drone_v_max: float = 4.0
     drone_u_max: float = 3.0
     drone_vision_radius: float = 10.0
 
-    # Geometry
     extended_hull_margin: float = 3.0
     
-    # Driving Phase Parameters
+    # drive phase parameters
     goal_position: tuple = (18.0, 18.0)
+    success_radius: float = 3.0
     gathering_threshold_radius: float = 7.0
 
-    # Visual
+    # visual
     xlim: tuple = (-25, 25)
     ylim: tuple = (-25, 25)
 
@@ -560,6 +560,10 @@ def draw_simulation(ax, sim: Simulation):
 
     # Draw Goal Location
     ax.scatter(sim.goal[0], sim.goal[1], s=200, marker="s", color='limegreen', label="Goal/Sheepfold")
+    
+    # Draw Success Zone
+    success_circle = plt.Circle(sim.goal, sim.cfg.success_radius, color='limegreen', fill=True, alpha=0.15, label="Success Zone")
+    ax.add_patch(success_circle)
 
     # Animals
     ax.scatter(positions[:, 0], positions[:, 1], s=30, label="Animals", color='tab:blue')
@@ -653,8 +657,15 @@ def draw_simulation(ax, sim: Simulation):
     ax.grid(True, alpha=0.3)
 
     phase = "DRIVING" if sim.is_driving else "GATHERING"
+    
+    # Check if all animals are in goal for title
+    dists_to_goal = np.linalg.norm(positions - sim.goal, axis=1)
+    all_in_goal = np.all(dists_to_goal <= sim.cfg.success_radius)
+    
+    status_text = "SUCCESS! ALL ANIMALS HERDED" if all_in_goal else f"Phase: {phase}"
+    
     ax.set_title(
-        f"Phase: {phase} | t={sim.time:.1f} | herd radius={geom['radius']:.2f}"
+        f"{status_text} | t={sim.time:.1f} | herd radius={geom['radius']:.2f}"
     )
     ax.legend(loc="upper right", bbox_to_anchor=(1.35, 1.0))
 
@@ -679,6 +690,16 @@ def main():
         for i in range(2500):
             sim.step()
             draw_simulation(ax, sim)
+            
+            # Check for success: all animals within success_radius of goal
+            dists_to_goal = np.linalg.norm(sim.herd.positions - sim.goal, axis=1)
+            if np.all(dists_to_goal <= sim.cfg.success_radius):
+                print(f"Simulation Success! All animals reached the goal at t={sim.time:.1f}s.")
+                # Draw one last time to show final state with SUCCESS title
+                draw_simulation(ax, sim)
+                plt.pause(0.01)
+                break
+                
             plt.pause(0.01)
     except KeyboardInterrupt:
         print("Simulation interrupted.")

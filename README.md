@@ -1,65 +1,93 @@
 # Barking Drone
 
-[Video link](https://youtu.be/P8s404sTP94)
-
 The project group consists of Mikołaj Lipiński and Bartłomiej Hryniewski.
 
 ## Overview
 
-This repository implements a multi-drone livestock herding simulation inspired by
+This repository implements a drone-assisted livestock herding simulation inspired by
 [Robotic Herding of Farm Animals Using a Network of Barking Aerial Drones](https://www.mdpi.com/2504-446X/6/2/29).
 
-The current system simulates:
-- Reynolds-style herd behavior with species-specific profiles (`sheep`, `goats`, `cows`)
-- Geometric herd analysis (centroid, convex hull, buffered/extended hull, herd radius)
-- A two-phase swarm strategy:
-  1. **Gathering phase**: drones spread around the buffered hull and compress dispersed animals
-  2. **Driving phase**: once compact enough, drones patrol a rear arc and push the herd toward a goal
+The current codebase includes:
+- Agent-based herd dynamics with species profiles (`sheep`, `goats`, `cows`)
+- Multi-drone geometric control using convex/extended hull logic
+- Two-phase herding (gathering → driving)
+- Reinforcement learning environments and PPO training/evaluation pipeline (`herding_rl/`)
 
-## Implemented Functionality
+## Implemented Core Functionality
 
-### Herd / Animal Simulation
-- Agent-based herd dynamics with cohesion, alignment, separation, noise, and drone repulsion.
-- Configurable species profiles via `ANIMAL_PROFILES` in `main_swarm_sim.py`.
-- Speed limiting and boundary handling inside a configurable world box.
+### Herd and Geometry
+- Reynolds-style behavior terms (cohesion, separation, alignment, drone repulsion, noise).
+- Herd geometry utilities: centroid, convex hull, extended hull, herd radius.
+- World boundary handling and speed limiting.
 
 ### Swarm Control
-- Multi-drone manager (`control/swarm_manager.py`) handling per-drone control updates.
-- Polygon-to-1D mapping (`control/swarm_control.py`) for assignment over hull perimeter.
-- Target allocation and direction selection with collision-order checks.
-- Sliding-mode-inspired edge-following control law (`control/control_law.py`).
+- Swarm manager for multi-drone updates.
+- Polygon-to-1D perimeter mapping for assignment.
+- Target allocation with direction search and collision-order checks.
+- Sliding-mode-inspired control law for moving to/following edges.
 
-### Two-Phase Herding Logic
-- **Gathering**:
-  - Build convex hull and extended hull around herd.
-  - Generate evenly spaced target points on the extended hull.
-  - Assign drones to targets and move along closest edges.
-- **Driving**:
-  - Triggered when herd radius drops below `gathering_threshold_radius`.
-  - Generate rear semicircle patrol bounds behind herd relative to goal.
-  - Drones perform segment sweep motion to drive herd toward target.
+### Two-Phase Herding
+- **Gathering phase:** drones spread around the extended hull and compress herd dispersion.
+- **Driving phase:** triggered when herd radius crosses threshold; drones sweep along a rear arc toward the goal.
 
 ### Visualization
-- Real-time matplotlib animation of animals, drones, centroid, hull geometry, and phase-dependent guides.
-- Goal marker and phase/radius status in plot title.
+- Real-time matplotlib simulation view of animals, drones, hulls, targets, phase, and goal.
+
+## Reinforcement Learning (RL)
+
+RL components live under `herding_rl/` and use the simulation/control stack as the plant.
+
+### RL Environments
+- `herding_rl/gains_env.py` (`HerdingGainTunerEnv`)
+  - Action: continuous tuning of heuristic gains (`k_edge`, `k_target`, `v_scale`)
+  - Uses gathering/driving logic and SMC-based swarm control beneath the RL policy
+  - This is the environment currently used by training (`herding_rl/train.py`)
+
+- `herding_rl/commander_env.py` (`HerdingCommanderEnv`)
+  - Hierarchical setup where RL outputs waypoint-like commands and lower-level control tracks them
+
+### Training and Evaluation
+- `herding_rl/train.py`
+  - PPO training via Stable-Baselines3
+  - Supports checkpointing, curriculum phases, vectorized envs, and normalization stats
+- `herding_rl/evaluate.py`
+  - Deterministic rollout evaluation, success metrics, optional video export
+
+### RL Config
+- `herding_rl/config.py` defines:
+  - `SimConfigRL`, `EnvConfig`, `RewardConfig`, `TrainConfig`, `CurriculumConfig`
+  - Includes optional partial observability setting (`use_partial_observability`)
+
+### RL Integration Test Script
+- `test_rl_integration.py`
+  - Script that checks env reset/step shapes, PPO forward pass, short training loop, and partial observability mode
 
 ## Repository Structure
 
-- `main_swarm_sim.py` – main simulation loop, geometry, herd dynamics, phase switching, visualization.
-- `control/drone.py` – drone state model and dynamics update.
-- `control/control_law.py` – steering and edge-following control laws.
-- `control/swarm_control.py` – polygon mapping, assignment logic, travel distance/collision checks.
-- `control/swarm_manager.py` – swarm-level update logic for gathering and driving phases.
-- `control/test_pilot.py` – standalone visual pilot/swarm control script.
-- `animals.py` – older/alternate single-drone simulation variant.
+- `main_swarm_sim.py` – main simulation, phase switching, geometry, visualization
+- `animals.py` – alternate/legacy single-drone-focused simulation variant
+- `control/drone.py` – drone dynamics model
+- `control/control_law.py` – steering/edge-following control law
+- `control/swarm_control.py` – assignment + polygon mapping logic
+- `control/swarm_manager.py` – swarm coordination for gathering/driving
+- `control/test_pilot.py` – visual pilot script for swarm behavior
+- `herding_rl/` – RL envs, training, evaluation, and config
 
 ## Installation
+
+Base simulation dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-If Qt backend issues occur on Linux, install:
+For RL training/evaluation, also install:
+
+```bash
+pip install torch gymnasium stable-baselines3
+```
+
+If Qt backend issues occur on Linux:
 
 ```bash
 sudo apt install libxcb-cursor0
@@ -67,25 +95,37 @@ sudo apt install libxcb-cursor0
 
 ## Running
 
-Run the full two-phase simulation:
+Run the simulation:
 
 ```bash
 python main_swarm_sim.py
 ```
 
-Run the pilot/control visual test script:
+Run the pilot visualization script:
 
 ```bash
 python control/test_pilot.py
 ```
 
-## Main Configuration
+Run RL training:
 
-Tune simulation behavior in `SimConfig` (`main_swarm_sim.py`), including:
-- `n_animals`, `n_drones`
-- `drone_influence_radius`, `drone_v_max`, `drone_u_max`
-- `extended_hull_margin`
-- `goal_position`
-- `gathering_threshold_radius`
+```bash
+python -m herding_rl.train
+```
 
-Switch animal type by changing `selected_profile` in `main_swarm_sim.py`.
+Run RL evaluation:
+
+```bash
+python -m herding_rl.evaluate --model <path-to-model.zip> [--stats <vec-normalize.pkl>]
+```
+
+Run RL integration checks:
+
+```bash
+python test_rl_integration.py
+```
+
+## Notes
+
+- `requirements.txt` currently contains core simulation dependencies; RL dependencies are listed above separately.
+- The active simulation profile in `main_swarm_sim.py` is selected via `selected_profile`.

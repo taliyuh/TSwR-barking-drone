@@ -107,15 +107,6 @@ Videos are saved to `videos/`.
 
 To skip video generation: add `--no-video`.
 
-### 4. Run integration tests
-
-Validates that the environment, PPO model, curriculum, and partial observability all work correctly:
-
-```bash
-python3 test_rl_integration.py
-```
-
----
 
 ## Project Structure
 

@@ -1,5 +1,12 @@
 import numpy as np
 import itertools
+# simplify the 2d problem to 1d
+# contents:
+# point_to_polygon_distance - project any 2d point onto the polygon and get its 1d coords
+# polygon_to_line - convert all drones and target points to 1d
+# calculate_travel_dist - how far drone has to fly to reach the target
+# check_collision - verigy the drones won't cross each other
+# send_drones_wherever - find the best allocation of drones to targets
 
 def point_to_polygon_distance(point, vertices):
     """
@@ -16,7 +23,7 @@ def point_to_polygon_distance(point, vertices):
     point = np.array(point, dtype=float)
     accumulated_distance = 0.0
 
-    # Find the edge that is closest to the given point
+    # find the edge that is closest to the given point
     min_dist = np.inf
     closest_1d_pos = 0.0
 
@@ -38,6 +45,7 @@ def point_to_polygon_distance(point, vertices):
             proj = vertex1
             t_clamped = 0.0
 
+        # pick the edge with smallest distance to (closest edge)
         dist_to_edge = np.linalg.norm(point - proj)
 
         # check if dist(v1, p1) + dist(v2, p1) == dist(v1, v2)
@@ -45,6 +53,7 @@ def point_to_polygon_distance(point, vertices):
         if dist_to_edge < min_dist:
             min_dist = dist_to_edge
             # if yes, then the point is on the current edge
+            # add length of previous edges and distance from v1 to the projected point to get the 1d position
             distance_v1_p1 = t_clamped * edge_length
             closest_1d_pos = accumulated_distance + distance_v1_p1
         
@@ -80,6 +89,7 @@ def polygon_to_line(vertices, targets, drones):
     for drone in range(len(drones)):
         drone_positions.append(point_to_polygon_distance(drones[drone].d, vertices))
 
+    # and position of each target
     for target in range(len(targets)):
         target_positions.append(point_to_polygon_distance(targets[target], vertices))
 
@@ -106,6 +116,7 @@ def calculate_travel_dist(drone_position, target_position, direction, polygon_le
     """
 
     # check if drone crossed the target, differentiate direction
+    # wrapping is to ensure that drone can pass the origins
     if target_position > drone_position and direction == 0:
         wrap_left = 1
     else:
@@ -118,7 +129,9 @@ def calculate_travel_dist(drone_position, target_position, direction, polygon_le
 
     # calculate travel distance based on direction
     if direction == 0:
+        # unwrapped target coordinate
         z_star = target_position - wrap_left * polygon_length
+        # e.g. if drone is at 0.1, target is at 0.9, and direction is left, then wrap_left is 1, so z_star is -0.1, and travel distance is 0.2
         travel_distance = drone_position - z_star
 
     elif direction == 1:
@@ -138,6 +151,8 @@ def check_collision(z_star_list, polygon_length):
     checks if there is a collision between drones based on their z_star values
     """
 
+    # the drones are sorted
+    # check if their unwrapped positions are also sorted, if not, there is a collision
     # check first and last drone
     if not (0 < (z_star_list[-1] - z_star_list[0]) < polygon_length):
         return True
@@ -161,7 +176,7 @@ def send_drones_wherever(drone_positions, target_positions, polygon_length):
     sends drones to their targets without checking for collisions
     """
 
-    # We must sort the drone positions to ensure that check_collision receives correctly ordered positions,
+    # we must sort the drone positions to ensure that check_collision receives correctly ordered positions,
     # as its validity relies on the cyclic ordering of elements mathematically.
     sorted_indices = np.argsort(drone_positions)
     sorted_drone_positions = [drone_positions[i] for i in sorted_indices]
@@ -198,7 +213,7 @@ def send_drones_wherever(drone_positions, target_positions, polygon_length):
                 best_directions = flying_directions
 
     if best_allocation is not None:
-        # Map the assignment back to the original unstructured list of drones
+        # map the assignment back to the original unstructured list of drones
         final_allocation = [None] * len(drone_positions)
         final_directions = [None] * len(drone_positions)
         for sorted_idx, original_idx in enumerate(sorted_indices):

@@ -17,8 +17,12 @@ from herding_rl.config import EnvConfig, RewardConfig, SimConfigRL
 
 class HerdingGainTunerEnv(gym.Env):
     """
-    Gymnasium environment for Approach B: Gain Tuning.
-    RL tuner outputs k_edge, k_target, and v_scale for the existing SMC heuristic.
+    Gymnasium environment for tuning the k_edge gain of the SMC herding heuristic.
+
+    Learns a SINGLE parameter: k_edge (edge-following vs target-seeking bias).
+    The control-law master vector b* = k_edge*b + k_target*o* is immediately
+    normalized, so only the RATIO k_edge/k_target matters — we fix k_target=1.0
+    and learn k_edge
     """
     metadata = {"render_modes": ["human"]}
 
@@ -30,11 +34,11 @@ class HerdingGainTunerEnv(gym.Env):
 
         self.profile = ANIMAL_PROFILES["sheep"]
 
-        # Action space: 3 continuous values for [k_edge, k_target, v_scale] mapped from [-1, 1]
-        self.action_space = spaces.Box(low=-1, high=1, shape=(3,), dtype=np.float32)
+        # 1d action k_edge [-1, 1] mapped to [0.1, 5.0]
+        self.action_space = spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
 
-        # Observation space: 19 features (normalized) + phase + time + 3 gains = 23
-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(23,), dtype=np.float32)
+        # observation: 19 base features + phase + time + 1 gain = 21
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(21,), dtype=np.float32)
 
         self._sim_cfg_for_herd = self._build_sim_config()
 
@@ -44,9 +48,9 @@ class HerdingGainTunerEnv(gym.Env):
         self.prev_dist_to_goal = 0.0
         self.prev_radius = 0.0
         self.prev_drone_positions = None
-        self.current_gains = np.array([1.0, 1.0, 1.0]) # Default gains
+        self.current_gains = np.array([1.0])  # [k_edge] only
         
-        # Gathering vs driving state
+        # phase switching (gathering vs driving)
         self.gathering_threshold_radius = 6.0
         self.gathering_phase = True
 
@@ -64,21 +68,20 @@ class HerdingGainTunerEnv(gym.Env):
             drone_vision_radius=self.sim_cfg.drone_vision_radius,
         )
 
-    def set_curriculum(self, n_animals, goal, success_radius):
-        """Update difficulty parameters (called between episodes)."""
+    def set_curriculum(self, n_animals):
+        """Update animal count only. Goal position & success radius stay fixed
+        (read from SimConfigRL — never change between curriculum phases)."""
         self.env_cfg.n_animals = n_animals
-        self.sim_cfg.goal_position = goal
-        self.sim_cfg.success_radius = success_radius
-        # Rebuild the cached SimConfig
         self._sim_cfg_for_herd = self._build_sim_config()
 
     def _get_obs(self):
+        """Build normalized observation vector (21 features)."""
         positions = self.herd.positions
         centroid = compute_centroid(positions)
         radius = herd_radius(positions, centroid)
         mean_vel = np.mean(self.herd.velocities, axis=0)
-
         goal = np.array(self.sim_cfg.goal_position)
+
         dist_to_goal = np.linalg.norm(centroid - goal)
         vec_to_goal = (goal - centroid) / (dist_to_goal + 1e-6)
 
@@ -98,17 +101,15 @@ class HerdingGainTunerEnv(gym.Env):
             radius / self.env_cfg.world_size,
             mean_vel[0] / self.profile.max_speed,
             mean_vel[1] / self.profile.max_speed,
-            *drone_feats,
+            *drone_feats,           # 8 features: 4 drones × 2D relative to centroid
             vec_to_goal[0],
             vec_to_goal[1],
             dist_to_goal / (self.env_cfg.world_size * 2),
             in_2rc,
             in_rc,
-            1.0 if self.gathering_phase else -1.0, # Phase indicator
+            1.0 if self.gathering_phase else -1.0,
             1.0 - (self.steps_count / self.env_cfg.max_decisions),
-            self.current_gains[0] / 5.0, # Normalized k_edge
-            self.current_gains[1] / 5.0, # Normalized k_target
-            self.current_gains[2] / 2.0  # Normalized v_scale
+            self.current_gains[0] / 5.0,  # normalized k_edge (only gain)
         ], dtype=np.float32)
 
         return obs
@@ -119,6 +120,7 @@ class HerdingGainTunerEnv(gym.Env):
         cfg = self.sim_cfg
         n = self.env_cfg.n_animals
 
+        # randomly spawn animals
         positions = np.column_stack([
             self.np_random.uniform(cfg.world_min + cfg.spawn_margin,
                                    cfg.world_max - cfg.spawn_margin, n),
@@ -128,6 +130,7 @@ class HerdingGainTunerEnv(gym.Env):
         velocities = self.np_random.standard_normal((n, 2)) * 0.1
         panic_timers = np.zeros(n, dtype=int)
         panic_directions = np.zeros((n, 2), dtype=float)
+        # create fresh herd state for this episode
         self.herd = HerdState(
             positions=positions,
             velocities=velocities,
@@ -135,12 +138,14 @@ class HerdingGainTunerEnv(gym.Env):
             panic_directions=panic_directions,
         )
 
+        # initialize drones in a circle around the herd
         initial_positions = []
         for i in range(self.env_cfg.n_drones):
             angle = i * (2 * np.pi / self.env_cfg.n_drones)
             r = cfg.world_max * 1.1
             initial_positions.append([r * np.cos(angle), r * np.sin(angle)])
 
+        # create fresh swarm manager for this episode
         self.swarm_manager = SwarmManager(
             number_of_drones=self.env_cfg.n_drones,
             initial_positions=initial_positions,
@@ -148,26 +153,26 @@ class HerdingGainTunerEnv(gym.Env):
             u_max=cfg.drone_u_max,
         )
 
+        # reset tracking variables
         self.steps_count = 0
         centroid = compute_centroid(self.herd.positions)
         self.prev_dist_to_goal = float(np.linalg.norm(centroid - np.array(cfg.goal_position)))
         self.prev_radius = float(herd_radius(self.herd.positions, centroid))
         self.prev_drone_positions = [np.array(p) for p in initial_positions]
         self.gathering_phase = True
-        self.current_gains = np.array([1.0, 1.0, 1.0])
+        self.current_gains = np.array([1.0])  # [k_edge]
 
         return self._get_obs(), {}
 
     def step(self, action):
-        # Decode action to gains
         k_edge = np.interp(action[0], [-1, 1], [0.1, 5.0])
-        k_target = np.interp(action[1], [-1, 1], [0.1, 5.0])
-        v_scale = np.interp(action[2], [-1, 1], [0.1, 2.0])
+        k_target = 1.0   # fixed - ratio anchor
+        v_scale = 1.0
         
-        self.current_gains = np.array([k_edge, k_target, v_scale])
-        gains_tuple = tuple(self.current_gains)
+        self.current_gains = np.array([k_edge])
+        gains_tuple = (k_edge, k_target, v_scale)
 
-        # Run SMC sub-steps with the heuristic strategy
+        # run smc heuristic for decision_interval simulation steps
         for _ in range(self.env_cfg.decision_interval):
             centroid = compute_centroid(self.herd.positions)
             radius = herd_radius(self.herd.positions, centroid)
@@ -198,7 +203,7 @@ class HerdingGainTunerEnv(gym.Env):
 
             self.herd = update_herd(self.herd, self.swarm_manager.drones, self._sim_cfg_for_herd, self.profile)
 
-        # Apply partial-observability estimation when enabled
+        # apply partial-observability estimation when enabled
         if self.sim_cfg.use_partial_observability:
             observed_pos, observed_vel, _ = compute_observations(
                 self.herd, self.swarm_manager.drones,
@@ -251,6 +256,7 @@ class HerdingGainTunerEnv(gym.Env):
             "frac_in_goal": frac_in_goal,
             "r_progress": r_progress,
             "r_compact": r_compact,
+            "k_edge": float(k_edge),
         }
 
         return self._get_obs(), reward, terminated, truncated, info

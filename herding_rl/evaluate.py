@@ -1,3 +1,5 @@
+# irrelevant, helper script just to see the rl results
+
 import argparse
 import os
 import numpy as np
@@ -5,6 +7,12 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
+
+import sys
+
+# Allow running as `python herding_rl/evaluate.py` from the project root.
+if __package__ is None:
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from herding_rl.gains_env import HerdingGainTunerEnv
 

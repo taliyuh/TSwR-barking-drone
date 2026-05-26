@@ -35,3 +35,108 @@ The outputs of the plant (which serve as feedback to the controller) will be:
 - 2D cow positions (specifically the vertices of the herd's convex hull)
 - Centroid of the herd $C_o$
 
+---
+
+## Usage
+
+### Setup
+
+```bash
+cd tswr_project
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 1. Launch the standard simulation
+
+Runs the full SMC herding simulation with hand-tuned gains ($k_{edge}=1$, $k_{target}=1$, $v_{scale}=1$) and live Matplotlib visualization:
+
+```bash
+python3 main_swarm_sim.py
+```
+
+- 100 sheep, 4 drones, gathering → driving phases
+- Goal at $(15, 15)$, success radius $5$
+- Simulation runs up to 2500 steps (250 s simulated time, ~15 s wall-clock)
+- Closing the plot window terminates the simulation early
+
+### 2. Train the RL gain tuner
+
+Trains a PPO policy to learn the optimal $k_{edge}$ gain for the SMC controller.
+$k_{target}$ and $v_{scale}$ are fixed at $1.0$ — only the ratio $k_{edge}/k_{target}$
+matters in the normalized control law.
+
+```bash
+# Full training (2M timesteps, ~2–3 hours)
+python3 herding_rl/train.py
+
+# Quick test run (10k timesteps, ~1 minute)
+python3 herding_rl/train.py --timesteps 10000
+
+# Resume from checkpoint
+python3 herding_rl/train.py --resume models/gains_ppo/commander_ppo_100000_steps
+```
+
+**Curriculum:** The environment difficulty auto-increases:
+- **Phase 1** (0–500k steps): 20 animals
+- **Phase 2** (500k–1M steps): 30 animals
+- **Phase 3** (1M+ steps): 40 animals
+
+Goal position $(15, 15)$ and success radius $5$ stay **fixed** across all phases.
+
+Monitor progress with TensorBoard:
+```bash
+tensorboard --logdir logs/gains_ppo/
+```
+Watch the `rollout/k_edge` scalar to see the learned gain evolve over time.
+
+### 3. Evaluate a trained model
+
+Run deterministic rollouts and see success statistics. The first episode is recorded as a video:
+
+```bash
+python3 herding_rl/evaluate.py \
+  --model models/gains_ppo/commander_ppo_final.zip \
+  --stats models/gains_ppo/vec_normalize_final.pkl \
+  --episodes 5
+```
+
+Output shows per-episode success/failure, steps taken, reward, and final distance to goal.
+Videos are saved to `videos/`.
+
+To skip video generation: add `--no-video`.
+
+### 4. Run integration tests
+
+Validates that the environment, PPO model, curriculum, and partial observability all work correctly:
+
+```bash
+python3 test_rl_integration.py
+```
+
+---
+
+## Project Structure
+
+```
+tswr_project/
+├── main_swarm_sim.py          # Standard simulation entry point
+├── animals.py                 # Herd dynamics & animal profiles
+├── requirements.txt
+├── control/
+│   ├── control_law.py         # SMC: fly_on_edge() — b* = k_edge*b + k_target*o*
+│   ├── drone.py               # Drone state: position d, heading a, velocity v
+│   ├── swarm_control.py       # 1D projection & drone-to-target allocation
+│   ├── swarm_manager.py       # Orchestrates drones in gathering/driving modes
+│   └── test_pilot.py
+├── herding_rl/
+│   ├── config.py              # All RL hyperparameters, curriculum, sim configs
+│   ├── gains_env.py           # Gymnasium env — learns k_edge via PPO
+│   ├── train.py               # PPO training loop with curriculum callback
+│   └── evaluate.py            # Deterministic rollouts + video generation
+├── models/gains_ppo/          # Saved PPO checkpoints
+├── logs/gains_ppo/            # TensorBoard logs
+└── videos/                    # Evaluation recordings
+```
+

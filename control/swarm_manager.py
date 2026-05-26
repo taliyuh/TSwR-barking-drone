@@ -16,11 +16,13 @@ class SwarmManager:
         self.drones = []
         
         # initialise the drones
+        # start with vector pointing to the right
+        # store all drones in a list 
         for i in range(number_of_drones):
             drone = Drone(initial_positions[i], [1.0, 0.0], v_max, u_max)
             self.drones.append(drone)
 
-
+    # control for gathering phase
     def update_swarm(self, dt, vertices, target_points, gains=(1.0, 1.0, 1.0)):
         """
         Updates the physical state of the whole swarm.
@@ -32,8 +34,10 @@ class SwarmManager:
         """
 
         # find best allocation of the drones
+        # project drones and targets onto a line
         drone_1d, target_1d, polygon_length = polygon_to_line(vertices, target_points, self.drones)        
-        best_gamma, self.best_allocation, self.best_directions = send_drones_wherever(drone_1d, target_1d, polygon_length)
+        # allocate the drones to targets
+        _, self.best_allocation, self.best_directions = send_drones_wherever(drone_1d, target_1d, polygon_length)
         
         if self.best_allocation is not None:
             assigned_targets = self.best_allocation
@@ -41,10 +45,12 @@ class SwarmManager:
         else: 
             return
         
+        # how aggresively the drones moves
         k_edge, k_target, v_scale = gains
 
         for i, drone in enumerate(self.drones):
             
+            # the drones first move to the polygon, and only then to targets
             # find edge closest to the drone
             min_dist = np.inf
             closest_v1 = None
@@ -62,15 +68,21 @@ class SwarmManager:
                     closest_v1 = v1
                     closest_v2 = v2
             
+            # map the assigned 1d target back to 2d
             assigned_target = assigned_targets[i]
             assigned_direction = assigned_directions[i]
             target_2d = None
 
+            # target 1d is a list of floats along the polygon, target_points is a list of 2d coordinates
+            # loop through target_1d to find the index of the assigned target, then get the corresponding 2d point
             for k, t in enumerate(target_1d):
                 if np.isclose(t, assigned_target):
                     target_2d = target_points[k]
                     break
 
+            # check if the target is on the closest edge
+            # if not, fly to the edge that target is on
+            # check if distance to v1 and v2 adds up to the edge length. if yes, the target is on the edge
             dist_v1 = np.linalg.norm(np.array(closest_v1) - np.array(target_2d))
             dist_v2 = np.linalg.norm(np.array(closest_v2) - np.array(target_2d))
             edge_length = np.linalg.norm(np.array(closest_v1) - np.array(closest_v2))
@@ -78,11 +90,13 @@ class SwarmManager:
             if np.isclose(dist_v1 + dist_v2, edge_length, atol=1e-5):
                 intermediate_target = target_2d
             else:
+                # move to the closest vertex in the direction of the target
                 if assigned_direction == 1:
                     intermediate_target = closest_v2
                 else:
                     intermediate_target = closest_v1
             
+            # get the steering commands from the control law
             u, v = fly_on_edge(drone, closest_v1, closest_v2, intermediate_target, 
                                k_edge=k_edge, k_target=k_target, v_scale=v_scale)
 
@@ -95,6 +109,7 @@ class SwarmManager:
         :return positions_list: list of current xy positions of all drones
         :return heading_vectors_list: list of current heading vectors of all drones
         """
+        # create vectors for simulation visualisation
         positions_list = []
         heading_vectors_list = []
 
@@ -110,7 +125,9 @@ class SwarmManager:
         patrol_points is a list of length (number_of_drones + 1).
         :param gains: tuple of (k_edge, k_target, v_scale) for control law
         """
-        # Initialize patrol directions if they don't exist yet (1 for forward, -1 for backward)
+        # commands for the second phase of the sim
+        # drones sweep back and forth preventing animals from escaping
+        # initialise patrol directions
         if not hasattr(self, 'patrol_directions'):
             self.patrol_directions = [1] * len(self.drones)
 
@@ -120,16 +137,16 @@ class SwarmManager:
             p1 = patrol_points[i]
             p2 = patrol_points[i + 1]
             
-            # Determine current target based on patrol direction
+            # determine current target based on patrol direction
             target = p2 if self.patrol_directions[i] == 1 else p1
             
-            # Check if drone reached the end of its patrol segment
+            # check if drone reached the end of its patrol segment
             dist_to_target = np.linalg.norm(drone.d - target)
             if dist_to_target < 0.5:
-                self.patrol_directions[i] *= -1  # Swap direction
+                self.patrol_directions[i] *= -1  # swap direction
                 target = p1 if self.patrol_directions[i] == 1 else p2
 
-            # Use the sliding mode edge logic to slide along the segment
+            # use the sliding mode edge logic to slide along the segment
             u, v = fly_on_edge(drone, p1, p2, target,
                                k_edge=k_edge, k_target=k_target, v_scale=v_scale)
             drone.update_state(dt, u, v)

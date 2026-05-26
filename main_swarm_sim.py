@@ -6,7 +6,7 @@ from shapely.geometry import Polygon, LineString
 import sys
 import os
 
-# append the control dir
+# ensure control folder is importable, regardless where the script is run from
 sys.path.append(os.path.join(os.path.dirname(__file__), 'control'))
 from swarm_manager import SwarmManager
 
@@ -19,8 +19,10 @@ class SimConfig:
     dt: float = 0.1
     world_min: float = -20.0
     world_max: float = 20.0
+    # how far from edge animals spawn
     spawn_margin: float = 5.0
 
+    # prevent jitter for low accel
     accel_threshold: float = 0.15 
     velocity_damping: float = 0.95
 
@@ -29,44 +31,45 @@ class SimConfig:
 
     drone_v_max: float = 4.0
     drone_u_max: float = 3.0
+
+    # how far drones see
     drone_vision_radius: float = 10.0
 
     extended_hull_margin: float = 3.0
     
     # drive phase parameters
-    goal_position: tuple = (18.0, 18.0)
-    success_radius: float = 3.0
+    goal_position: tuple = (15.0, 15.0)
+    success_radius: float = 5.0
     gathering_threshold_radius: float = 7.0
 
     # visual
     xlim: tuple = (-25, 25)
     ylim: tuple = (-25, 25)
 
-
+# animals config
 @dataclass
 class AnimalProfile:
     name: str
 
-    # Social distances
-    neighbor_radius: float
-    separation_radius: float
+    neighbor_radius: float # how far they consider others for cohesion/alignment
+    separation_radius: float # radious for which animals repel each other
 
-    # Behaviour weights
+    # flocking weights
     cohesion_weight: float
     separation_weight: float
     alignment_weight: float
     drone_repulsion_weight: float
     noise_weight: float
 
-    # Motion
     max_speed: float
 
+    # additional random event
     panic_probability: float
     panic_duration_min: int
     panic_duration_max: int
     panic_strength: float
 
-
+# various species
 ANIMAL_PROFILES = {
     "sheep": AnimalProfile(
         name="Sheep",
@@ -115,9 +118,7 @@ ANIMAL_PROFILES = {
     ),
 }
 
-# =========================
-# DATA STRUCTURES
-# =========================
+
 
 @dataclass
 class HerdState:
@@ -126,20 +127,15 @@ class HerdState:
     panic_timers: np.ndarray
     panic_directions: np.ndarray
 
-# =========================
-# GEOMETRY HELPERS
-# =========================
-
+# geometry helpers
 def compute_centroid(positions: np.ndarray) -> np.ndarray:
     return np.mean(positions, axis=0)
-
 
 def compute_convex_hull(positions: np.ndarray):
     if len(positions) < 3:
         return positions
     hull = ConvexHull(positions)
     return positions[hull.vertices]
-
 
 def compute_extended_hull(hull_points: np.ndarray, margin: float):
     if len(hull_points) < 3:
@@ -148,7 +144,6 @@ def compute_extended_hull(hull_points: np.ndarray, margin: float):
     if not poly.is_valid:
         poly = poly.convex_hull
     return poly.buffer(margin, join_style=2)  # 2 = sharper corners
-
 
 def polygon_to_xy(poly: Polygon):
     if poly is None:
@@ -602,9 +597,10 @@ def draw_simulation(ax, sim: Simulation):
     drone_positions, drone_headings = sim.swarm_manager.get_swarm_status()
     if drone_positions:
         dp = np.array(drone_positions)
-        dh = np.array(drone_headings)
+        # Show velocity direction (may differ from heading when drone reverses)
+        dv = np.array([np.sign(d.v) * d.a for d in sim.swarm_manager.drones])
         ax.scatter(dp[:, 0], dp[:, 1], s=100, marker="X", label="Drones", color='black')
-        ax.quiver(dp[:, 0], dp[:, 1], dh[:, 0], dh[:, 1], color='black', scale=20, width=0.005)
+        ax.quiver(dp[:, 0], dp[:, 1], dv[:, 0], dv[:, 1], color='black', scale=20, width=0.005)
 
     for drone in sim.swarm_manager.drones:
         x, y = drone.d

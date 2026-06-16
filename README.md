@@ -1,34 +1,29 @@
 # Barking Drone
 
-The project group consists of Mikołaj Lipiński and Bartłomiej Hryniewski.
-
-
 ## Description
 
-The goal of this project is to create a control algorithm for a swarm of drones for the purpose of livestock herding. The project is based on the paper [Robotic Herding of Farm Animals Using a Network of Barking Aerial Drones](https://www.mdpi.com/2504-446X/6/2/29). Our contribution to the project will include application of appropriate reinforced learning algorithm, either for modelling or estimating animal herd model, or generating drones trajectory.
+The goal of this project is to create a control algorithm for a swarm of drones for the purpose of livestock herding. The project is based on the paper [Robotic Herding of Farm Animals Using a Network of Barking Aerial Drones](https://www.mdpi.com/2504-446X/6/2/29). 
 
-## Goals
-
-1. **Milestone**: Implementation of the animal agent model (behavioural rules) and the integration of a convex hull algorithm to dynamically define the herd boundary and drone trajectory.
-
-2. **Project Completion**: A fully autonomous, two-phase control system capable of herd aggregation (grouping) and trajectory tracking to guide the herd to a predefined target location.
+![Phase 1](readme_assets/start.png)
+![Phase 2](readme_assets/middle.png)
+![Phase 3](readme_assets/end.png)
 
 ## System
 
-Cow behavior will be modeled using Reynolds' rules of flocking behavior. The drones will operate in two modes: 
-1. **Gathering mode:** Drones will navigate alongside a complex polygon surrounding the dispersed animals to push the furthest outlier animals towards the center of the herd.
+Cow behavior is modeled using Reynolds' rules of flocking behavior. The drones operate in two modes: 
+1. **Gathering mode:** Drones navigate alongside a complex polygon surrounding the dispersed animals to push the furthest outlier animals towards the center of the herd.
 2. **Driving mode:** The polygon simplifies to a circle in order to push the aggregated herd to the target location.
 
-The core control algorithm will be Sliding Mode Control (SMC), utilizing geometric switching logic. 
+The core control algorithm is Sliding Mode Control (SMC), utilizing geometric switching logic. 
 
 ## Inputs and Outputs
 
-The inputs to the plant (simulation) will consist of:
+The inputs to the plant (simulation) consist of:
 
 - Linear drone velocity $v(t)$, where $v(t) \in [0, V_{max}]$
 - Angular steering command $u(t)$, where $|u(t)| \le U_{max}$
 
-The outputs of the plant (which serve as feedback to the controller) will be:
+The outputs of the plant (which serve as feedback to the controller) are:
 
 - Drone Cartesian coordinates $d(t) = [x(t), y(t)]$
 - Drone heading direction vector $a(t)$
@@ -56,56 +51,56 @@ Runs the full SMC herding simulation with hand-tuned gains ($k_{edge}=1$, $k_{ta
 python3 main_swarm_sim.py
 ```
 
-- 100 sheep, 4 drones, gathering → driving phases
+- 50 animals, 4 drones, gathering → driving phases
 - Goal at $(15, 15)$, success radius $5$
 - Simulation runs up to 2500 steps (250 s simulated time, ~15 s wall-clock)
 - Closing the plot window terminates the simulation early
 
-### 2. Train the RL gain tuner
+### 2. Train the RL swarm controller
 
-Trains a PPO policy to learn the optimal $k_{edge}$ gain for the SMC controller.
-$k_{target}$ and $v_{scale}$ are fixed at $1.0$ — only the ratio $k_{edge}/k_{target}$
-matters in the normalized control law.
+Trains a PPO policy to output fine-grained, per-drone residual steering and speed corrections (`delta_steer`, `delta_speed`) on top of the baseline SMC controller, rather than tuning global SMC gains.
 
 ```bash
-# Full training (2M timesteps, ~2–3 hours)
+# Full training (10M timesteps)
 python3 herding_rl/train.py
 
 # Quick test run (10k timesteps, ~1 minute)
 python3 herding_rl/train.py --timesteps 10000
 
 # Resume from checkpoint
-python3 herding_rl/train.py --resume models/gains_ppo/commander_ppo_100000_steps
+python3 herding_rl/train.py --resume models/herding_rl/commander_ppo_100000_steps
 ```
 
-**Curriculum:** The environment difficulty auto-increases:
-- **Phase 1** (0–500k steps): 20 animals
-- **Phase 2** (500k–1M steps): 30 animals
-- **Phase 3** (1M+ steps): 40 animals
-
-Goal position $(15, 15)$ and success radius $5$ stay **fixed** across all phases.
+**Reward Structure:** The agent is trained using a potential-based reward function that optimizes:
+- **Progress:** Centroid movement toward the goal (boosted during driving).
+- **Compactness:** Reduction in herd radius (boosted during gathering).
+- **Stragglers:** Reduction of the distance of the furthest animal to the centroid.
+- **Partial Success:** Quadratic scaling of the fraction of the herd inside the goal.
+- **Coverage:** Angular spread of the drones around the herd centroid.
+- **Action Cost:** Penalization of large residual command deviations.
 
 Monitor progress with TensorBoard:
 ```bash
-tensorboard --logdir logs/gains_ppo/
+tensorboard --logdir logs/herding_rl/
 ```
-Watch the `rollout/k_edge` scalar to see the learned gain evolve over time.
+Watch the success rate (`episode/success_rate`) and mean reward components (`rollout/mean_r_progress`, etc.) to track training progress.
 
-### 3. Evaluate a trained model
+### 3. Compare RL and SMC Baseline
 
-Run deterministic rollouts and see success statistics. The first episode is recorded as a video:
+Evaluate the trained RL agent against the pure SMC baseline by generating comparative videos under the exact same environment seeds:
 
 ```bash
-python3 herding_rl/evaluate.py \
-  --model models/gains_ppo/commander_ppo_final.zip \
-  --stats models/gains_ppo/vec_normalize_final.pkl \
-  --episodes 5
+# Generate side-by-side comparison videos
+python3 generate_comparison_videos.py --seed 4
 ```
 
-Output shows per-episode success/failure, steps taken, reward, and final distance to goal.
-Videos are saved to `videos/`.
-
-To skip video generation: add `--no-video`.
+- Comparative simulations are recorded and saved directly to the `videos/` folder:
+  - `videos/trained_rl.mp4`: Simulation run using the trained RL agent corrections.
+  - `videos/no_rl.mp4`: Simulation run using only the SMC baseline controller.
+- You can also run the utility script to print a summary of logged metrics from TensorBoard event files:
+  ```bash
+  python3 read_tb.py
+  ```
 
 
 ## Project Structure
@@ -114,20 +109,21 @@ To skip video generation: add `--no-video`.
 tswr_project/
 ├── main_swarm_sim.py          # Standard simulation entry point
 ├── animals.py                 # Herd dynamics & animal profiles
+├── generate_comparison_videos.py # Evaluation & side-by-side rendering script
+├── read_tb.py                 # Helper to read/print TensorBoard log summaries
 ├── requirements.txt
 ├── control/
-│   ├── control_law.py         # SMC: fly_on_edge() — b* = k_edge*b + k_target*o*
-│   ├── drone.py               # Drone state: position d, heading a, velocity v
-│   ├── swarm_control.py       # 1D projection & drone-to-target allocation
-│   ├── swarm_manager.py       # Orchestrates drones in gathering/driving modes
+│   ├── control_law.py         # SMC logic (with deadlock prevention / turn back logic)
+│   ├── drone.py               # Drone dynamics (heading, position, speed)
+│   ├── swarm_control.py       # 1D projection & target assignment
+│   ├── swarm_manager.py       # Orchestrates drones in gathering/driving modes (separates computation and application of commands)
 │   └── test_pilot.py
 ├── herding_rl/
-│   ├── config.py              # All RL hyperparameters, curriculum, sim configs
-│   ├── gains_env.py           # Gymnasium env — learns k_edge via PPO
-│   ├── train.py               # PPO training loop with curriculum callback
-│   └── evaluate.py            # Deterministic rollouts + video generation
-├── models/gains_ppo/          # Saved PPO checkpoints
-├── logs/gains_ppo/            # TensorBoard logs
-└── videos/                    # Evaluation recordings
+│   ├── config.py              # Environment, Reward, and Train configurations (10M timesteps, 15 animals, 4 drones)
+│   ├── gains_env.py           # Gymnasium environment (residual drone steering & speed corrections)
+│   └── train.py               # PPO training loop with herding-specific metrics logging
+├── models/herding_rl/         # Saved PPO checkpoints & VecNormalize statistics
+├── logs/herding_rl/           # TensorBoard event logs
+└── videos/                    # Comparison video recordings
 ```
 
